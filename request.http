@@ -1,0 +1,39 @@
+@clientId = order-service
+@clientSecret = NCjVQ3VNWPDG9s6bgz7Ywpyfeoh9d97U
+
+POST localhost:8081/orders
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "itemId": 1,
+  "amount": "100.00",
+  "quantity": 2,
+  "deliveryAddress": {
+    "city": "Tashkent",
+    "country": "UZB",
+    "street": "A. Navoi",
+    "district": "Mirzo-Ulugbek",
+    "house": "8",
+    "flat": 54
+  }
+}
+
+> {%
+    client.global.set("process_instance_id", response.body.processInstanceId);
+%}
+
+###
+POST http://localhost:8180/realms/process-engine/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id={{clientId}}&client_secret= {{clientSecret}}
+
+> {%
+    client.global.set("auth_token", response.body.access_token);
+%}
+
+###
+GET localhost:8080/api/v1/instances/{{process_instance_id}}
+Authorization: Bearer {{auth_token}}

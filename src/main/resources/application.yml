@@ -1,0 +1,40 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:h2:mem:orderdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  h2:
+    console:
+      enabled: true
+
+process-engine:
+  worker:
+    engine-url: http://localhost:8080
+    rabbitmq:
+      host: localhost
+      port: 5672
+      username: guest
+      password: guest
+    auto-deploy:
+      enabled: true
+      resource-location: classpath:bpmn/
+      fail-on-error: false
+    auth:
+      enabled: true
+      token-uri: http://localhost:8180/realms/process-engine/protocol/openid-connect/token
+      client-id: ${KEYCLOAK_CLIENT_ID:order-service}
+      client-secret: ${KEYCLOAK_CLIENT_SECRET:NCjVQ3VNWPDG9s6bgz7Ywpyfeoh9d97U}
