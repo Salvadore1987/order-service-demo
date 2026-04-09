@@ -25,6 +25,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -62,7 +63,7 @@ class OrderControllerIntegrationTest {
         void shouldCreateOrderSuccessfully() throws Exception {
             // Arrange
             String processInstanceId = "process-instance-42";
-            given(processInstanceClient.createInstance(eq("order-process"), anyMap()))
+            given(processInstanceClient.createInstance(eq("order-process"), anyString(), anyMap()))
                     .willReturn(Map.of("id", processInstanceId));
 
             DeliveryAddressRequest addressRequest = new DeliveryAddressRequest(
@@ -109,14 +110,14 @@ class OrderControllerIntegrationTest {
             assertThat(savedOrder.getDeliveryAddress().getCountry()).isEqualTo("Uzbekistan");
 
             // Assert (ProcessInstanceClient was called with correct arguments)
-            verify(processInstanceClient).createInstance(eq("order-process"), anyMap());
+            verify(processInstanceClient).createInstance(eq("order-process"), anyString(), anyMap());
         }
 
         @Test
         @DisplayName("should pass correct process variables to ProcessInstanceClient")
         void shouldPassCorrectVariablesToProcessEngine() throws Exception {
             // Arrange
-            given(processInstanceClient.createInstance(eq("order-process"), anyMap()))
+            given(processInstanceClient.createInstance(eq("order-process"), anyString(), anyMap()))
                     .willReturn(Map.of("id", "process-99"));
 
             CreateOrderRequest request = new CreateOrderRequest(
@@ -137,7 +138,7 @@ class OrderControllerIntegrationTest {
                     .andExpect(status().isCreated());
 
             // Assert (verify the variables map sent to the process engine)
-            verify(processInstanceClient).createInstance(eq("order-process"), org.mockito.ArgumentMatchers.argThat(variables ->
+            verify(processInstanceClient).createInstance(eq("order-process"), anyString(), org.mockito.ArgumentMatchers.argThat(variables ->
                     variables.containsKey("orderId") && variables.get("orderId") != null
             ));
         }
@@ -157,7 +158,7 @@ class OrderControllerIntegrationTest {
         @DisplayName("should propagate exception when ProcessInstanceClient fails")
         void shouldPropagateExceptionWhenProcessEngineFails() throws Exception {
             // Arrange
-            given(processInstanceClient.createInstance(eq("order-process"), anyMap()))
+            given(processInstanceClient.createInstance(eq("order-process"), anyString(), anyMap()))
                     .willThrow(new RuntimeException("Process Engine unavailable"));
 
             CreateOrderRequest request = new CreateOrderRequest(

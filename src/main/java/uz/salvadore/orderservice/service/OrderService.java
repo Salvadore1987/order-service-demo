@@ -56,7 +56,7 @@ public class OrderService {
                 "orderId", order.getId().toString()
         );
 
-        Map<String, Object> processResponse = processInstanceClient.createInstance("order-process", variables);
+        Map<String, Object> processResponse = processInstanceClient.createInstance("order-process", order.getId().toString(), variables);
         String processInstanceId = String.valueOf(processResponse.get("id"));
 
         order.setProcessInstanceId(processInstanceId);

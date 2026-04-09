@@ -34,9 +34,10 @@ public class ProcessInstanceClient {
                 .build();
     }
 
-    public Map<String, Object> createInstance(String definitionKey, Map<String, Object> variables) {
+    public Map<String, Object> createInstance(String definitionKey, String businessKey, Map<String, Object> variables) {
         Map<String, Object> requestBody = Map.of(
                 "definitionKey", definitionKey,
+                "businessKey", businessKey,
                 "variables", variables
         );
 

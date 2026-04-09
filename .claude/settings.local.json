@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew -q javaToolchains)",
+      "Bash(java -version)",
+      "Bash(./gradlew dependencies:*)",
+      "Bash(find /Users/eldarsagitov/Development/Demo/order-service-demo/build/reports/tests -name *.html)",
+      "Bash(./gradlew clean:*)",
+      "Bash(./gradlew bootRun)",
+      "Bash(xargs kill:*)",
+      "Bash(curl -s -u guest:guest http://localhost:15672/api/queues)",
+      "Bash(python3 -c \"import sys,json; [print\\(q[''''name'''']\\) for q in json.load\\(sys.stdin\\)]\")",
+      "Bash(curl:*)",
+      "Bash(./gradlew :worker-spring-boot-starter:build)",
+      "Bash(./gradlew :worker-spring-boot-starter:publishToMavenLocal)",
+      "Bash(./gradlew :worker-spring-boot-starter:tasks --all)",
+      "Bash(./gradlew compileTestJava)",
+      "Bash(find /Users/eldarsagitov/Development/Demo/order-service-demo/src/main/java -type f -name *.java)",
+      "Bash(xargs ls:*)",
+      "Bash(grep -r \"redis\\\\|Redis\\\\|REDIS\\\\|Lettuce\\\\|Jedis\" /Users/eldarsagitov/Development/process-manager-engine --include=*.md --include=*.txt)",
+      "Bash(xargs cat:*)",
+      "Bash(find /Users/eldarsagitov/Development/process-manager-engine/worker-spring-boot-starter -type f -name \"*.java\" -exec wc -l {} +)",
+      "Bash(jar tf:*)",
+      "Read(//private/tmp/**)",
+      "Bash(jar xf:*)",
+      "Bash(javap -c -p /tmp/uz/salvadore/processengine/worker/autoconfigure/ProcessEngineClient.class)",
+      "Bash(javap -p /tmp/uz/salvadore/processengine/worker/autoconfigure/ProcessEngineClient.class)",
+      "Bash(javap -p uz/salvadore/processengine/worker/autoconfigure/ProcessEngineClient.class)",
+      "Bash(javap -p uz/salvadore/processengine/worker/autoconfigure/BpmnAutoDeployer.class)",
+      "Bash(javap -p uz/salvadore/processengine/worker/autoconfigure/WorkerAutoConfiguration.class)",
+      "Bash(javap -p uz/salvadore/processengine/worker/autoconfigure/WorkerProperties.class)",
+      "Bash(javap -p 'uz/salvadore/processengine/worker/autoconfigure/WorkerProperties$AuthProperties.class')",
+      "Bash(javap -p 'uz/salvadore/processengine/worker/autoconfigure/WorkerProperties$AutoDeployProperties.class')"
+    ]
+  }
+}
