@@ -1,0 +1,23 @@
+@startuml c4-context
+!include <C4/C4_Context>
+
+title C4 — System Context Diagram — Order Service
+
+Person(customer, "Customer / API Client", "Клиент, создающий заказ через REST API (Postman, фронтенд, другой сервис)")
+
+System(orderService, "Order Service", "Spring Boot 3.4.4 (Java 21) микросервис управления заказами. Хранит заказы, запускает BPMN-процесс обработки заказа и исполняет его шаги как external task workers")
+
+System_Ext(processEngine, "Process Engine", "Внешний BPMN-движок (Camunda 7, external task pattern). Оркестрирует процессы order-process и charge-payment-subprocess")
+System_Ext(keycloak, "Keycloak", "Identity Provider. Realm process-engine, OAuth2 client credentials (client-id: order-service)")
+System_Ext(rabbitmq, "RabbitMQ", "Брокер сообщений. Транспорт external tasks между Process Engine и воркерами Order Service")
+System_Ext(redis, "Redis", "Кэш / служебное хранилище worker-spring-boot-starter")
+
+Rel(customer, orderService, "Создаёт заказ", "HTTPS/JSON: POST /orders")
+Rel(orderService, processEngine, "Запускает process instance (definitionKey=order-process, businessKey=orderId)", "REST: POST /api/v1/instances + Bearer JWT")
+Rel(orderService, keycloak, "Получает access token", "OAuth2 client_credentials")
+Rel(processEngine, rabbitmq, "Публикует external tasks (топики order.*)", "AMQP")
+Rel(orderService, rabbitmq, "Потребляет external tasks и возвращает результаты (complete/error)", "AMQP")
+Rel(orderService, redis, "Использует", "Redis protocol")
+
+SHOW_LEGEND()
+@enduml

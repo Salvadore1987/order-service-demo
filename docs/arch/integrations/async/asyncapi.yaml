@@ -1,0 +1,237 @@
+asyncapi: 2.6.0
+info:
+  title: Order Service — External Task Workers
+  version: 1.0-SNAPSHOT
+  description: |
+    Асинхронные интеграции сервиса заказов (order-service).
+
+    Сервис исполняет шаги BPMN-процессов `order-process` и
+    `charge-payment-subprocess` по паттерну **External Task Worker**:
+    Process Engine публикует external tasks в RabbitMQ по топикам `order.*`,
+    воркеры (`@JobWorker(topic = ...)`, библиотека `worker-spring-boot-starter`,
+    topicPrefix `order-service`) обрабатывают задачи и возвращают результат
+    (`complete(variables)` / `error(code, message)`).
+
+    Каждый воркер получает correlation/business key процесса
+    (businessKey = orderId) и переменные процесса.
+
+defaultContentType: application/json
+
+servers:
+  rabbitmq:
+    url: localhost:5672
+    protocol: amqp
+    description: RabbitMQ — транспорт external tasks (guest/guest, из application.yml)
+
+channels:
+  order.validate:
+    description: |
+      Валидация заказа (BPMN task `validate-order`, процесс `order-process`).
+      Обработчик: OrderValidateTaskHandler. Переводит заказ в статус VALIDATED.
+    subscribe:
+      operationId: handleOrderValidate
+      summary: Воркер потребляет задачу валидации заказа
+      message:
+        $ref: '#/components/messages/OrderTask'
+    publish:
+      operationId: completeOrderValidate
+      summary: Воркер возвращает результат (complete)
+      message:
+        $ref: '#/components/messages/TaskCompleted'
+
+  order.book:
+    description: |
+      Бронирование заказа (BPMN task `book-order`, параллельная ветка после
+      Parallel Gateway). Обработчик: OrderBookTaskHandler (имитирует работу 5 секунд).
+      Переводит заказ в статус BOOKED.
+    subscribe:
+      operationId: handleOrderBook
+      summary: Воркер потребляет задачу бронирования
+      message:
+        $ref: '#/components/messages/OrderTask'
+    publish:
+      operationId: completeOrderBook
+      summary: Воркер возвращает результат (complete)
+      message:
+        $ref: '#/components/messages/TaskCompleted'
+
+  order.notify:
+    description: |
+      Уведомление о бронировании (BPMN task `notify-booking`, параллельная
+      ветка после Parallel Gateway). Обработчик: OrderNotifyTaskHandler.
+      Статус заказа не меняет.
+    subscribe:
+      operationId: handleOrderNotify
+      summary: Воркер потребляет задачу уведомления
+      message:
+        $ref: '#/components/messages/OrderTask'
+    publish:
+      operationId: completeOrderNotify
+      summary: Воркер возвращает результат (complete)
+      message:
+        $ref: '#/components/messages/TaskCompleted'
+
+  order.payment.charge:
+    description: |
+      Списание оплаты (BPMN task `charge-payment`, сабпроцесс
+      `charge-payment-subprocess`). Обработчик: OrderPaymentChargeTaskHandler.
+      При успехе переводит заказ в статус PAID и возвращает
+      `isPaymentSuccess=true`. Бизнес-ошибка (PaymentChargeException,
+      code 30000) завершает задачу с `isPaymentSuccess=false`, что направляет
+      процесс в ветку проверки статуса (`order.payment.status`).
+      При retryCount > 5 — техническая ошибка задачи (error).
+    subscribe:
+      operationId: handlePaymentCharge
+      summary: Воркер потребляет задачу списания оплаты
+      message:
+        $ref: '#/components/messages/PaymentTask'
+    publish:
+      operationId: completePaymentCharge
+      summary: Воркер возвращает результат (complete с isPaymentSuccess)
+      message:
+        $ref: '#/components/messages/PaymentResult'
+
+  order.payment.status:
+    description: |
+      Проверка статуса платежа (BPMN task `check-status`, сабпроцесс
+      `charge-payment-subprocess`). Обработчик: OrderPaymentStatusHandler.
+      Инкрементирует retryCount; при `isPaymentSuccess=false` процесс ждёт
+      таймер PT5S и повторяет списание (retry-петля).
+    subscribe:
+      operationId: handlePaymentStatus
+      summary: Воркер потребляет задачу проверки статуса платежа
+      message:
+        $ref: '#/components/messages/PaymentTask'
+    publish:
+      operationId: completePaymentStatus
+      summary: Воркер возвращает результат (retryCount + 1)
+      message:
+        $ref: '#/components/messages/PaymentStatusResult'
+
+  order.payment.refund:
+    description: |
+      Возврат платежа — **компенсация** (BPMN task `refund-payment`,
+      isForCompensation=true; срабатывает через boundary compensation event
+      на Charge Payment при сбое доставки). Обработчик: OrderPaymentRefundTaskHandler.
+    subscribe:
+      operationId: handlePaymentRefund
+      summary: Воркер потребляет компенсационную задачу возврата платежа
+      message:
+        $ref: '#/components/messages/OrderTask'
+    publish:
+      operationId: completePaymentRefund
+      summary: Воркер возвращает результат (complete)
+      message:
+        $ref: '#/components/messages/TaskCompleted'
+
+  order.deliver:
+    description: |
+      Доставка заказа (BPMN task `deliver-order`, финальный шаг
+      `order-process`). Обработчик: OrderDeliverTaskHandler.
+      Переводит заказ в статус DELIVERED. При отсутствии orderId бросает
+      RuntimeException — это инициирует компенсацию (refund).
+    subscribe:
+      operationId: handleOrderDeliver
+      summary: Воркер потребляет задачу доставки
+      message:
+        $ref: '#/components/messages/OrderTask'
+    publish:
+      operationId: completeOrderDeliver
+      summary: Воркер возвращает результат (complete)
+      message:
+        $ref: '#/components/messages/TaskCompleted'
+
+components:
+  messages:
+    OrderTask:
+      name: OrderTask
+      title: External task с переменными процесса
+      summary: Входящая задача от Process Engine (variables процесса)
+      payload:
+        $ref: '#/components/schemas/OrderTaskPayload'
+
+    PaymentTask:
+      name: PaymentTask
+      title: External task платёжного сабпроцесса
+      payload:
+        $ref: '#/components/schemas/PaymentTaskPayload'
+
+    TaskCompleted:
+      name: TaskCompleted
+      title: Результат завершения задачи
+      payload:
+        $ref: '#/components/schemas/TaskCompletedPayload'
+
+    PaymentResult:
+      name: PaymentResult
+      title: Результат списания оплаты
+      payload:
+        $ref: '#/components/schemas/PaymentResultPayload'
+
+    PaymentStatusResult:
+      name: PaymentStatusResult
+      title: Результат проверки статуса платежа
+      payload:
+        $ref: '#/components/schemas/PaymentStatusResultPayload'
+
+  schemas:
+    OrderTaskPayload:
+      type: object
+      description: Переменные процесса, передаваемые воркеру
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: Идентификатор заказа (= businessKey процесса)
+      required:
+        - orderId
+
+    PaymentTaskPayload:
+      type: object
+      description: Переменные платёжного сабпроцесса
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: Идентификатор заказа
+        retryCount:
+          type: integer
+          description: Счётчик повторных попыток списания (увеличивается в order.payment.status)
+      required:
+        - orderId
+
+    TaskCompletedPayload:
+      type: object
+      description: Выходные переменные при complete()
+      properties:
+        processedAt:
+          type: string
+          format: date-time
+          description: ISO-метка времени обработки задачи воркером
+
+    PaymentResultPayload:
+      type: object
+      description: Выходные переменные order.payment.charge
+      properties:
+        processedAt:
+          type: string
+          format: date-time
+        isPaymentSuccess:
+          type: boolean
+          description: |
+            true — оплата прошла (процесс идёт к доставке);
+            false — бизнес-ошибка PaymentChargeException
+            (процесс идёт в проверку статуса и retry-петлю)
+      required:
+        - isPaymentSuccess
+
+    PaymentStatusResultPayload:
+      type: object
+      description: Выходные переменные order.payment.status
+      properties:
+        processedAt:
+          type: string
+          format: date-time
+        retryCount:
+          type: integer
+          description: Инкрементированный счётчик попыток

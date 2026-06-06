@@ -1,0 +1,55 @@
+@startuml c4-component
+!include <C4/C4_Component>
+
+title C4 — Component Diagram — Order Service (внутреннее устройство)
+
+Person(customer, "Customer / API Client")
+
+Container_Boundary(orderService, "Order Service (Spring Boot, :8081)") {
+
+    Component(orderController, "OrderController", "@RestController, /orders", "POST /orders → 201 Created. Принимает CreateOrderRequest, возвращает CreateOrderResponse")
+    Component(orderServiceComp, "OrderService", "@Service, @Transactional", "createOrder(): сохраняет Order, запускает процесс, сохраняет processInstanceId. updateOrderStatus(): меняет статус заказа")
+    Component(orderRepository, "OrderRepository", "Spring Data JPA, JpaRepository<Order, UUID>", "CRUD по таблице orders")
+    Component(processInstanceClient, "ProcessInstanceClient", "RestClient", "createInstance(definitionKey, businessKey, variables) → POST /api/v1/instances")
+    Component(tokenProvider, "OAuth2TokenProvider", "@Component", "Получает и кэширует JWT (client_credentials), обновляет за 10с до истечения")
+    Component(loggingInterceptor, "RestClientLoggingInterceptor", "ClientHttpRequestInterceptor", "Логирует HTTP запросы/ответы к Process Engine")
+
+    Component(validateHandler, "OrderValidateTaskHandler", "@JobWorker(topic=order.validate)", "Валидация заказа → status=VALIDATED")
+    Component(bookHandler, "OrderBookTaskHandler", "@JobWorker(topic=order.book)", "Бронирование заказа → status=BOOKED")
+    Component(notifyHandler, "OrderNotifyTaskHandler", "@JobWorker(topic=order.notify)", "Уведомление о бронировании")
+    Component(chargeHandler, "OrderPaymentChargeTaskHandler", "@JobWorker(topic=order.payment.charge)", "Списание оплаты → status=PAID; при PaymentChargeException complete(isPaymentSuccess=false)")
+    Component(statusHandler, "OrderPaymentStatusHandler", "@JobWorker(topic=order.payment.status)", "Проверка статуса платежа, инкремент retryCount")
+    Component(refundHandler, "OrderPaymentRefundTaskHandler", "@JobWorker(topic=order.payment.refund)", "Компенсация: возврат платежа")
+    Component(deliverHandler, "OrderDeliverTaskHandler", "@JobWorker(topic=order.deliver)", "Доставка заказа → status=DELIVERED")
+}
+
+ContainerDb_Ext(h2, "Order DB", "H2 in-memory", "Таблица orders")
+Container_Ext(processEngine, "Process Engine", ":8080", "BPMN order-process")
+Container_Ext(keycloak, "Keycloak", ":8180", "OAuth2 token endpoint")
+ContainerQueue_Ext(rabbitmq, "RabbitMQ", ":5672", "External tasks transport")
+
+Rel(customer, orderController, "POST /orders", "JSON")
+Rel(orderController, orderServiceComp, "createOrder(request)")
+Rel(orderServiceComp, orderRepository, "save / findById")
+Rel(orderServiceComp, processInstanceClient, "createInstance('order-process', orderId, {orderId})")
+Rel(processInstanceClient, tokenProvider, "getToken()")
+Rel(processInstanceClient, loggingInterceptor, "intercept()")
+Rel(tokenProvider, keycloak, "POST /token (client_credentials)", "HTTP")
+Rel(processInstanceClient, processEngine, "POST /api/v1/instances", "REST + Bearer")
+Rel(orderRepository, h2, "JPA")
+
+Rel(rabbitmq, validateHandler, "order.validate", "AMQP")
+Rel(rabbitmq, bookHandler, "order.book", "AMQP")
+Rel(rabbitmq, notifyHandler, "order.notify", "AMQP")
+Rel(rabbitmq, chargeHandler, "order.payment.charge", "AMQP")
+Rel(rabbitmq, statusHandler, "order.payment.status", "AMQP")
+Rel(rabbitmq, refundHandler, "order.payment.refund", "AMQP")
+Rel(rabbitmq, deliverHandler, "order.deliver", "AMQP")
+
+Rel(validateHandler, orderServiceComp, "updateOrderStatus(VALIDATED)")
+Rel(bookHandler, orderServiceComp, "updateOrderStatus(BOOKED)")
+Rel(chargeHandler, orderServiceComp, "updateOrderStatus(PAID)")
+Rel(deliverHandler, orderServiceComp, "updateOrderStatus(DELIVERED)")
+
+SHOW_LEGEND()
+@enduml

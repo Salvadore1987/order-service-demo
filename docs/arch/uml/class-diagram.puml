@@ -1,0 +1,163 @@
+@startuml class-diagram
+title UML Class Diagram — Order Service
+
+skinparam classAttributeIconSize 0
+
+package "uz.salvadore.orderservice.domain" {
+    class Order <<Entity>> {
+        - id : UUID
+        - firstName : String
+        - lastName : String
+        - itemId : Long
+        - amount : BigDecimal
+        - quantity : Integer
+        - status : OrderStatus
+        - processInstanceId : String
+        - createdAt : LocalDateTime
+        - deliveryAddress : DeliveryAddress
+        + Order(id, firstName, lastName, itemId, amount, quantity, deliveryAddress)
+        + setProcessInstanceId(id : String) : void
+        + setStatus(status : OrderStatus) : void
+    }
+
+    class DeliveryAddress <<Embeddable>> {
+        - city : String
+        - country : String
+        - street : String
+        - district : String
+        - house : String
+        - flat : Integer
+    }
+
+    enum OrderStatus {
+        CREATED
+        VALIDATED
+        BOOKED
+        PAID
+        DELIVERED
+    }
+}
+
+package "uz.salvadore.orderservice.dto" {
+    class CreateOrderRequest <<record>> {
+        + firstName : String
+        + lastName : String
+        + itemId : Long
+        + amount : BigDecimal
+        + quantity : Integer
+        + deliveryAddress : DeliveryAddressRequest
+    }
+
+    class DeliveryAddressRequest <<record>> {
+        + city : String
+        + country : String
+        + street : String
+        + district : String
+        + house : String
+        + flat : Integer
+    }
+
+    class CreateOrderResponse <<record>> {
+        + id : UUID
+        + status : String
+        + processInstanceId : String
+    }
+}
+
+package "uz.salvadore.orderservice.controller" {
+    class OrderController <<RestController>> {
+        - orderService : OrderService
+        + createOrder(request : CreateOrderRequest) : CreateOrderResponse
+    }
+}
+
+package "uz.salvadore.orderservice.service" {
+    class OrderService <<Service>> {
+        - orderRepository : OrderRepository
+        - processInstanceClient : ProcessInstanceClient
+        + createOrder(request : CreateOrderRequest) : CreateOrderResponse
+        + updateOrderStatus(orderId : String, status : OrderStatus) : void
+    }
+}
+
+package "uz.salvadore.orderservice.repository" {
+    interface OrderRepository <<Repository>> {
+    }
+    interface "JpaRepository<Order, UUID>" as JpaRepository
+}
+
+package "uz.salvadore.orderservice.client" {
+    class ProcessInstanceClient {
+        - restClient : RestClient
+        + createInstance(definitionKey : String, businessKey : String, variables : Map<String, Object>) : Map<String, Object>
+    }
+}
+
+package "uz.salvadore.orderservice.config" {
+    class OAuth2TokenProvider {
+        - cachedToken : String
+        - expiresAt : Instant
+        + getToken() : String
+        - refreshToken() : void
+    }
+
+    class RestClientLoggingInterceptor {
+        + intercept(request, body, execution) : ClientHttpResponse
+    }
+}
+
+package "uz.salvadore.orderservice.exception" {
+    class PaymentChargeException <<RuntimeException>> {
+        - code : String
+        - message : String
+    }
+}
+
+package "uz.salvadore.orderservice.worker" {
+    interface ExternalTaskHandler {
+        + execute(context : TaskContext) : void
+    }
+
+    class OrderValidateTaskHandler <<JobWorker: order.validate>>
+    class OrderBookTaskHandler <<JobWorker: order.book>>
+    class OrderNotifyTaskHandler <<JobWorker: order.notify>>
+    class OrderPaymentChargeTaskHandler <<JobWorker: order.payment.charge>>
+    class OrderPaymentStatusHandler <<JobWorker: order.payment.status>>
+    class OrderPaymentRefundTaskHandler <<JobWorker: order.payment.refund>>
+    class OrderDeliverTaskHandler <<JobWorker: order.deliver>>
+}
+
+' --- Relations ---
+Order *-- DeliveryAddress : @Embedded
+Order --> OrderStatus
+
+OrderController --> OrderService
+OrderController ..> CreateOrderRequest : <<in>>
+OrderController ..> CreateOrderResponse : <<out>>
+
+OrderService --> OrderRepository
+OrderService --> ProcessInstanceClient
+OrderService ..> Order : creates
+
+OrderRepository --|> JpaRepository
+
+ProcessInstanceClient --> OAuth2TokenProvider : Bearer token
+ProcessInstanceClient --> RestClientLoggingInterceptor
+
+CreateOrderRequest *-- DeliveryAddressRequest
+
+ExternalTaskHandler <|.. OrderValidateTaskHandler
+ExternalTaskHandler <|.. OrderBookTaskHandler
+ExternalTaskHandler <|.. OrderNotifyTaskHandler
+ExternalTaskHandler <|.. OrderPaymentChargeTaskHandler
+ExternalTaskHandler <|.. OrderPaymentStatusHandler
+ExternalTaskHandler <|.. OrderPaymentRefundTaskHandler
+ExternalTaskHandler <|.. OrderDeliverTaskHandler
+
+OrderValidateTaskHandler --> OrderService : updateOrderStatus(VALIDATED)
+OrderBookTaskHandler --> OrderService : updateOrderStatus(BOOKED)
+OrderPaymentChargeTaskHandler --> OrderService : updateOrderStatus(PAID)
+OrderDeliverTaskHandler --> OrderService : updateOrderStatus(DELIVERED)
+OrderPaymentChargeTaskHandler ..> PaymentChargeException : throws
+
+@enduml

@@ -24,6 +24,7 @@ spring:
 process-engine:
   worker:
     engine-url: http://localhost:8080
+    topicPrefix: 'order-service'
     rabbitmq:
       host: localhost
       port: 5672
@@ -37,4 +38,4 @@ process-engine:
       enabled: true
       token-uri: http://localhost:8180/realms/process-engine/protocol/openid-connect/token
       client-id: ${KEYCLOAK_CLIENT_ID:order-service}
-      client-secret: ${KEYCLOAK_CLIENT_SECRET:NCjVQ3VNWPDG9s6bgz7Ywpyfeoh9d97U}
+      client-secret: ${KEYCLOAK_CLIENT_SECRET:order-service-secret}

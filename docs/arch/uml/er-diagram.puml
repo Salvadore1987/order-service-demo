@@ -1,0 +1,53 @@
+@startuml er-diagram
+title UML ER Diagram — Order Service (H2: jdbc:h2:mem:orderdb)
+
+hide circle
+skinparam linetype ortho
+
+entity "ORDERS" as orders {
+    * **id : UUID <<PK>>**
+    --
+    * first_name : VARCHAR
+    * last_name : VARCHAR
+    * item_id : BIGINT
+    * amount : NUMERIC(19,2)
+    * quantity : INTEGER
+    * status : VARCHAR  -- enum: CREATED | VALIDATED | BOOKED | PAID | DELIVERED
+    process_instance_id : VARCHAR -- логическая ссылка на Process Engine
+    * created_at : TIMESTAMP
+    --
+    .. @Embedded DeliveryAddress ..
+    city : VARCHAR
+    country : VARCHAR
+    street : VARCHAR
+    district : VARCHAR
+    house : VARCHAR
+    flat : INTEGER
+}
+
+entity "PROCESS_INSTANCE\n(внешняя система — Process Engine)" as pi <<external>> {
+    * **id : UUID <<PK>>**
+    --
+    business_key : VARCHAR -- = orders.id
+    definition_key : VARCHAR -- 'order-process'
+    state : VARCHAR
+}
+
+orders |o..o| pi : process_instance_id →\n(логическая связь,\nне FK в БД)
+
+note bottom of orders
+  Единственная таблица сервиса.
+  Схема генерируется Hibernate
+  (ddl-auto: create-drop).
+  DeliveryAddress — embedded value object,
+  колонки лежат в той же таблице.
+end note
+
+note bottom of pi
+  Состояние BPMN-процесса хранится
+  во внешнем Process Engine.
+  Связь через orders.process_instance_id
+  и businessKey = orders.id.
+end note
+
+@enduml

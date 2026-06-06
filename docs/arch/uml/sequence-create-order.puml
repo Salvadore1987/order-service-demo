@@ -1,0 +1,91 @@
+@startuml sequence-create-order
+title UML Sequence Diagram — Создание и обработка заказа (order-process)
+
+actor "Customer /\nAPI Client" as client
+participant "OrderController" as controller
+participant "OrderService" as service
+participant "OrderRepository\n(H2: orders)" as repo
+participant "OAuth2TokenProvider" as token
+participant "Keycloak\n(:8180)" as keycloak
+participant "ProcessInstanceClient" as piClient
+participant "Process Engine\n(:8080)" as engine
+queue "RabbitMQ\n(:5672)" as mq
+participant "Workers\n(@JobWorker)" as workers
+
+== Синхронная часть: POST /orders ==
+
+client -> controller : POST /orders\nCreateOrderRequest (JSON)
+controller -> service : createOrder(request)
+service -> repo : save(Order)\nstatus = CREATED, id = UUID
+repo --> service : Order
+
+service -> piClient : createInstance("order-process",\nbusinessKey = orderId,\nvariables = {orderId})
+piClient -> token : getToken()
+alt токен закэширован и не истёк
+    token --> piClient : cached JWT
+else токен истёк (margin 10s)
+    token -> keycloak : POST /realms/process-engine/...\ngrant_type=client_credentials
+    keycloak --> token : access_token, expires_in
+    token --> piClient : new JWT
+end
+piClient -> engine : POST /api/v1/instances\nAuthorization: Bearer <JWT>\n{definitionKey, businessKey, variables}
+engine --> piClient : { id: processInstanceId, ... }
+piClient --> service : processInstanceId
+
+service -> repo : save(Order)\nprocessInstanceId
+service --> controller : CreateOrderResponse\n{id, status=CREATED, processInstanceId}
+controller --> client : 201 Created (JSON)
+
+== Асинхронная часть: исполнение BPMN order-process ==
+
+engine -> mq : external task: **order.validate** {orderId}
+mq -> workers : OrderValidateTaskHandler.execute(ctx)
+workers -> repo : status = VALIDATED
+workers --> mq : complete {processedAt}
+mq --> engine : task completed
+
+note over engine : Parallel Gateway (split)
+
+par Book Order
+    engine -> mq : external task: **order.book** {orderId}
+    mq -> workers : OrderBookTaskHandler.execute(ctx)\n(имитация: 5s работы)
+    workers -> repo : status = BOOKED
+    workers --> mq : complete {processedAt}
+else Notify Booking
+    engine -> mq : external task: **order.notify** {orderId}
+    mq -> workers : OrderNotifyTaskHandler.execute(ctx)
+    workers --> mq : complete {processedAt}
+end
+
+note over engine : Parallel Gateway (join) →\nCall Activity: charge-payment-subprocess
+
+loop пока isPaymentSuccess != true
+    engine -> mq : external task: **order.payment.charge** {orderId, retryCount}
+    mq -> workers : OrderPaymentChargeTaskHandler.execute(ctx)
+    alt платёж успешен
+        workers -> repo : status = PAID
+        workers --> mq : complete {processedAt, isPaymentSuccess=true}
+    else PaymentChargeException (бизнес-ошибка)
+        workers --> mq : complete {isPaymentSuccess=false}
+        engine -> mq : external task: **order.payment.status** {orderId, retryCount}
+        mq -> workers : OrderPaymentStatusHandler.execute(ctx)
+        workers --> mq : complete {processedAt, retryCount+1}
+        note over engine : Timer PT5S (wait 5s)\n→ повторное списание
+    end
+end
+
+engine -> mq : external task: **order.deliver** {orderId}
+mq -> workers : OrderDeliverTaskHandler.execute(ctx)
+alt доставка успешна
+    workers -> repo : status = DELIVERED
+    workers --> mq : complete {processedAt}
+    note over engine : End Event — процесс завершён
+else ошибка доставки (orderId == null → RuntimeException)
+    workers --> mq : failure
+    note over engine : Boundary Compensation Event\nна Charge Payment
+    engine -> mq : compensation task: **order.payment.refund** {orderId}
+    mq -> workers : OrderPaymentRefundTaskHandler.execute(ctx)
+    workers --> mq : complete {processedAt}
+end
+
+@enduml

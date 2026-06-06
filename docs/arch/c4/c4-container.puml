@@ -1,0 +1,31 @@
+@startuml c4-container
+!include <C4/C4_Container>
+
+title C4 — Container Diagram — Order Service
+
+Person(customer, "Customer / API Client", "Клиент, создающий заказ")
+
+System_Boundary(orderServiceBoundary, "Order Service (localhost:8081)") {
+    Container(restApi, "REST API", "Spring Web MVC", "POST /orders — приём заказа, сохранение в БД, запуск BPMN-процесса. OrderController → OrderService")
+    Container(workers, "External Task Workers", "worker-spring-boot-starter", "7 обработчиков @JobWorker по топикам: order.validate, order.book, order.notify, order.payment.charge, order.payment.status, order.payment.refund, order.deliver")
+    ContainerDb(h2, "Order DB", "H2 in-memory (jdbc:h2:mem:orderdb)", "Таблица orders: заказ + embedded delivery address, статус, processInstanceId. Hibernate ddl-auto: create-drop")
+}
+
+System_Boundary(infraBoundary, "Внешняя инфраструктура") {
+    Container_Ext(processEngine, "Process Engine", "BPMN engine, localhost:8080", "Исполняет order-process и charge-payment-subprocess (auto-deploy из classpath:bpmn/). REST API /api/v1/instances")
+    Container_Ext(keycloak, "Keycloak", "localhost:8180", "Realm process-engine. Выдаёт JWT по client_credentials (order-service / order-service-secret)")
+    ContainerQueue_Ext(rabbitmq, "RabbitMQ", "localhost:5672", "Транспорт external tasks. Topic prefix: order-service")
+    ContainerDb_Ext(redis, "Redis", "localhost:6379", "Кэш worker-стартера")
+}
+
+Rel(customer, restApi, "POST /orders", "HTTPS/JSON")
+Rel(restApi, h2, "Сохраняет Order (status=CREATED), записывает processInstanceId", "JPA/Hibernate")
+Rel(restApi, keycloak, "Получает и кэширует access token (OAuth2TokenProvider)", "HTTP, client_credentials")
+Rel(restApi, processEngine, "POST /api/v1/instances {definitionKey, businessKey, variables}", "REST + Bearer JWT (ProcessInstanceClient)")
+Rel(processEngine, rabbitmq, "Публикует external tasks по топикам order.*", "AMQP")
+Rel(workers, rabbitmq, "Подписаны на топики order.*; отвечают complete(variables) / error(code, message)", "AMQP")
+Rel(workers, h2, "Обновляют статус заказа (VALIDATED, BOOKED, PAID, DELIVERED)", "JPA/Hibernate")
+Rel(workers, redis, "Использует", "Redis protocol")
+
+SHOW_LEGEND()
+@enduml

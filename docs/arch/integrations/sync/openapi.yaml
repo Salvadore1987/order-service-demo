@@ -1,0 +1,147 @@
+openapi: 3.0.3
+info:
+  title: Order Service API
+  description: |
+    Синхронный REST API сервиса заказов (order-service).
+
+    Сервис принимает заказ, сохраняет его в БД со статусом `CREATED`
+    и запускает BPMN-процесс `order-process` во внешнем Process Engine
+    (businessKey = orderId). Дальнейшая обработка заказа происходит
+    асинхронно через external task workers — см. `../async/asyncapi.yaml`.
+  version: 1.0-SNAPSHOT
+  contact:
+    name: uz.salvadore
+
+servers:
+  - url: http://localhost:8081
+    description: Локальное окружение (server.port из application.yml)
+
+tags:
+  - name: orders
+    description: Управление заказами
+
+paths:
+  /orders:
+    post:
+      tags:
+        - orders
+      summary: Создать заказ
+      description: |
+        Создаёт заказ и запускает процесс обработки:
+        1. Сохраняет `Order` в БД (status = `CREATED`, id = UUID).
+        2. Вызывает Process Engine `POST /api/v1/instances`
+           (definitionKey = `order-process`, businessKey = orderId,
+           variables = `{orderId}`) с Bearer-токеном из Keycloak.
+        3. Сохраняет `processInstanceId` в заказе и возвращает ответ.
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              firstName: John
+              lastName: Doe
+              itemId: 1
+              amount: "100.00"
+              quantity: 2
+              deliveryAddress:
+                city: Tashkent
+                country: UZB
+                street: A. Navoi
+                district: Mirzo-Ulugbek
+                house: "8"
+                flat: 54
+      responses:
+        '201':
+          description: Заказ создан, BPMN-процесс запущен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+              example:
+                id: 019577a0-a1b2-7000-8000-000000000000
+                status: CREATED
+                processInstanceId: 3f1c9a2e-5b7d-4e8f-9a1b-2c3d4e5f6a7b
+        '400':
+          description: Некорректный запрос (отсутствует или невалидно тело запроса)
+        '500':
+          description: Внутренняя ошибка (например, недоступен Process Engine или Keycloak)
+
+components:
+  schemas:
+    CreateOrderRequest:
+      type: object
+      description: Запрос на создание заказа (record CreateOrderRequest)
+      properties:
+        firstName:
+          type: string
+          description: Имя покупателя
+          example: John
+        lastName:
+          type: string
+          description: Фамилия покупателя
+          example: Doe
+        itemId:
+          type: integer
+          format: int64
+          description: Идентификатор товара
+          example: 1
+        amount:
+          type: number
+          description: Сумма заказа
+          example: 100.00
+        quantity:
+          type: integer
+          format: int32
+          description: Количество
+          example: 2
+        deliveryAddress:
+          $ref: '#/components/schemas/DeliveryAddressRequest'
+
+    DeliveryAddressRequest:
+      type: object
+      description: Адрес доставки (record DeliveryAddressRequest)
+      properties:
+        city:
+          type: string
+          example: Tashkent
+        country:
+          type: string
+          example: UZB
+        street:
+          type: string
+          example: A. Navoi
+        district:
+          type: string
+          example: Mirzo-Ulugbek
+        house:
+          type: string
+          example: "8"
+        flat:
+          type: integer
+          format: int32
+          example: 54
+
+    CreateOrderResponse:
+      type: object
+      description: Результат создания заказа (record CreateOrderResponse)
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Идентификатор заказа
+        status:
+          type: string
+          description: Статус заказа на момент ответа (всегда CREATED)
+          enum:
+            - CREATED
+            - VALIDATED
+            - BOOKED
+            - PAID
+            - DELIVERED
+          example: CREATED
+        processInstanceId:
+          type: string
+          description: Идентификатор process instance во внешнем Process Engine
